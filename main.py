@@ -1,28 +1,36 @@
 from fastapi import FastAPI, Request
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
+import requests
+import os
 
 app = FastAPI()
 
-model_name = "google/flan-t5-small"  # Light model for low RAM
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-generator = pipeline("text2text-generation", model=model, tokenizer=tokenizer)
+HF_API_KEY = os.environ.get("HF_API_KEY")
+MODEL = "google/flan-t5-small"  # you can change this to other free models
 
 @app.get("/")
 def home():
-    return {"message": "Jarvis (light) is online"}
+    return {"status": "Jarvis API running"}
 
 @app.post("/chat")
 async def chat(request: Request):
     data = await request.json()
-    prompt = data.get("prompt", "")
-    result = generator(prompt, max_new_tokens=150)[0]["generated_text"]
-    return {"response": result}
+    user_input = data.get("prompt", "")
 
-@app.post("/summarize")
-async def summarize(request: Request):
-    data = await request.json()
-    text = data.get("text", "")
-    summary_prompt = f"Summarize this in 3 sentences: {text}"
-    result = generator(summary_prompt, max_new_tokens=100)[0]["generated_text"]
-    return {"summary": result}
+    if not user_input:
+        return {"error": "No prompt provided"}
+
+    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+    payload = {"inputs": user_input}
+
+    response = requests.post(
+        f"https://api-inference.huggingface.co/models/{MODEL}",
+        headers=headers,
+        json=payload
+    )
+
+    if response.status_code != 200:
+        return {"error": f"HF API error {response.status_code}", "details": response.text}
+
+    result = response.json()
+    output_text = result[0]["generated_text"] if isinstance(result, list) else result
+    return {"response": output_text}
